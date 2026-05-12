@@ -1,0 +1,12 @@
+# Python
+venv/
+__pycahce__/
+*.__pyc
+scripts/seed.py
+
+# Enviornment variables
+.Enviornment
+.env
+
+# Mac junk files
+.DS_Store
