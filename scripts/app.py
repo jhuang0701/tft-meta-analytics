@@ -397,7 +397,7 @@ with st.sidebar:
     st.markdown("""
     <div style="margin-bottom: 32px;">
         <div style="font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 700;
-                    color: #ffffff; letter-spacing: 2px;">♟ Chat<span style="color: #c89b3c;">TFT</span> </div><span style="font-size:11px;color:#4a5568;font-weight:400;letter-spacing:1px">v1.1 beta</span></div>
+                    color: #ffffff; letter-spacing: 2px;">♟ Chat<span style="color: #c89b3c;">TFT</span> </div><span style="font-size:11px;color:#4a5568;font-weight:400;letter-spacing:1px">v1.0 beta</span></div>
         <div style="font-size: 11px; color: #4a5568; letter-spacing: 1px; margin-top: 2px;">
             CHALLENGER META ENGINE
         </div>
