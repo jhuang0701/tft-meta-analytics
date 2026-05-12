@@ -9,4 +9,4 @@ scripts/seed.py
 .env
 
 # Mac junk files
-.DS_Store
+.DS_Storescripts/seed.py
