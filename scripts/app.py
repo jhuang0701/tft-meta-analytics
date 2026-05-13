@@ -179,7 +179,8 @@ def run_analysis(game_name: str, tag_line: str = "NA1") -> dict:
     cached_matches = get_cached_matches_batch(all_challenger_match_ids)
     uncached       = [mid for mid in all_challenger_match_ids if mid not in cached_matches]
 
-    for mid in uncached:
+    MAX_FETCH = 50
+    for mid in uncached[:MAX_FETCH]:
         url = f"{MATCH_REGION}/tft/match/v1/matches/{mid}"
         time.sleep(0.2)
         response = requests.get(url, headers=HEADERS)
