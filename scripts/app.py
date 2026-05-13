@@ -169,7 +169,7 @@ def run_analysis(game_name: str, tag_line: str = "NA1") -> dict:
         if not cpuuid:
             continue
         ids = cached_id_lists.get(cpuuid)
-        if not ids and fresh_fetches < 50:
+        if not ids and fresh_fetches < 30:
             ids = get_match_ids(cpuuid, count=50)
             fresh_fetches += 1
         if ids:
