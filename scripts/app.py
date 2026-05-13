@@ -163,12 +163,17 @@ def run_analysis(game_name: str, tag_line: str = "NA1") -> dict:
     cached_id_lists          = get_cached_match_ids_batch(challenger_puuids)
     all_challenger_match_ids = []
 
+    fresh_fetches = 0
     for p in players:
         cpuuid = p.get("puuid")
         if not cpuuid:
             continue
-        ids = cached_id_lists.get(cpuuid) or get_match_ids(cpuuid, count=50)
-        all_challenger_match_ids.extend(ids)
+        ids = cached_id_lists.get(cpuuid)
+        if not ids and fresh_fetches < 50:
+            ids = get_match_ids(cpuuid, count=50)
+            fresh_fetches += 1
+        if ids:
+            all_challenger_match_ids.extend(ids)
 
     all_challenger_match_ids = list(set(all_challenger_match_ids))
     cached_matches = get_cached_matches_batch(all_challenger_match_ids)
