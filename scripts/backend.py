@@ -5,6 +5,7 @@ import pandas as pd
 from collections import Counter, defaultdict
 import time
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 from assets import get_unit_cost
 from db import (
@@ -159,21 +160,31 @@ def get_match_objects(puuid: str, count: int = 50, ttl_hours: int = CACHE_TTL_HO
         return []
 
     cached_batch = get_cached_matches_batch(match_ids)
-    raw_matches = []
+    raw_matches = list(cached_batch.values())
+    uncached = [mid for mid in match_ids if mid not in cached_batch]
 
-    for mid in match_ids:
-        if mid in cached_batch:
-            raw_matches.append(cached_batch[mid])
-        else:
-            url = f"{MATCH_REGION}/tft/match/v1/matches/{mid}"
-            time.sleep(0.2)
-            response = requests.get(url, headers=HEADERS)
-            if response.status_code == 429:
+    def fetch_one(mid):
+        url = f"{MATCH_REGION}/tft/match/v1/matches/{mid}"
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=8)
+            if r.status_code == 429:
                 raise RuntimeError("Riot API rate limit hit. Please wait a minute and try again.")
-            if response.status_code == 200:
-                data = response.json()
-                save_match(mid, data)
-                raw_matches.append(data)
+            if r.status_code == 200:
+                return mid, r.json()
+        except RuntimeError:
+            raise
+        except Exception:
+            pass
+        return mid, None
+
+    if uncached:
+        with ThreadPoolExecutor(max_workers=5) as ex:
+            futures = {ex.submit(fetch_one, mid): mid for mid in uncached}
+            for future in as_completed(futures):
+                mid, data = future.result()
+                if data:
+                    save_match(mid, data)
+                    raw_matches.append(data)
 
     latest_set = detect_latest_set(raw_matches)
     return [m for m in raw_matches if m.get("info", {}).get("tft_set_number") == latest_set]

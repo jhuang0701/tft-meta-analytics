@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from groq import Groq
 from dotenv import load_dotenv
+import time as _time
 
 from backend import (
     get_puuid, get_match_objects, get_top_players,
@@ -146,11 +147,10 @@ def metric_card(col, label, value, sub="", accent=False):
 # ---------------------------------------------------------------------------
 # CORE ANALYSIS
 # ---------------------------------------------------------------------------
-
 def run_analysis(game_name: str, tag_line: str = "NA1") -> dict:
     puuid       = get_puuid(game_name, tag_line)          # raises on bad name / rate-limit
     your_matches = get_match_objects(puuid, count=50, ttl_hours=1)
-
+    
     if not your_matches:
         raise ValueError(
             f"No TFT matches found for {game_name}#{tag_line} in the current set. "
@@ -159,7 +159,7 @@ def run_analysis(game_name: str, tag_line: str = "NA1") -> dict:
 
     players = get_top_players()[:300]
     challenger_puuids = [p["puuid"] for p in players if p.get("puuid")]
-
+    
     cached_id_lists          = get_cached_match_ids_batch(challenger_puuids)
     all_challenger_match_ids = []
 
@@ -175,21 +175,35 @@ def run_analysis(game_name: str, tag_line: str = "NA1") -> dict:
         if ids:
             all_challenger_match_ids.extend(ids)
 
-    all_challenger_match_ids = list(set(all_challenger_match_ids))
+    all_challenger_match_ids = list(set(all_challenger_match_ids))[:2000]
     cached_matches = get_cached_matches_batch(all_challenger_match_ids)
     uncached       = [mid for mid in all_challenger_match_ids if mid not in cached_matches]
 
-    MAX_FETCH = 50
-    for mid in uncached[:MAX_FETCH]:
+    MAX_FETCH = 15
+
+    def fetch_challenger_match(mid):
         url = f"{MATCH_REGION}/tft/match/v1/matches/{mid}"
-        time.sleep(0.2)
-        response = requests.get(url, headers=HEADERS)
-        if response.status_code == 429:
-            raise RuntimeError("Riot API rate limit hit while fetching Challenger matches. Please wait a minute.")
-        if response.status_code == 200:
-            data = response.json()
-            save_match(mid, data)
-            cached_matches[mid] = data
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=8)
+            if r.status_code == 429:
+                raise RuntimeError("Riot API rate limit hit while fetching Challenger matches. Please wait a minute.")
+            if r.status_code == 200:
+                return mid, r.json()
+        except RuntimeError:
+            raise
+        except Exception:
+            pass
+        return mid, None
+
+    if uncached[:MAX_FETCH]:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=5) as ex:
+            futures = {ex.submit(fetch_challenger_match, mid): mid for mid in uncached[:MAX_FETCH]}
+            for future in as_completed(futures):
+                mid, match_data = future.result()
+                if match_data:
+                    save_match(mid, match_data)
+                    cached_matches[mid] = match_data
 
     challenger_matches = [m for m in cached_matches.values() if m]
     latest_set         = detect_latest_set(challenger_matches)
