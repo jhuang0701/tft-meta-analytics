@@ -149,7 +149,7 @@ def metric_card(col, label, value, sub="", accent=False):
 
 def run_analysis(game_name: str, tag_line: str = "NA1") -> dict:
     puuid       = get_puuid(game_name, tag_line)          # raises on bad name / rate-limit
-    your_matches = get_match_objects(puuid, count=50, ttl_hours=1)
+    your_matches = get_match_objects(puuid, count=20, ttl_hours=1)
 
     if not your_matches:
         raise ValueError(
@@ -170,7 +170,7 @@ def run_analysis(game_name: str, tag_line: str = "NA1") -> dict:
             continue
         ids = cached_id_lists.get(cpuuid)
         if not ids and fresh_fetches < 30:
-            ids = get_match_ids(cpuuid, count=50)
+            ids = get_match_ids(cpuuid, count=20)
             fresh_fetches += 1
         if ids:
             all_challenger_match_ids.extend(ids)
@@ -179,7 +179,7 @@ def run_analysis(game_name: str, tag_line: str = "NA1") -> dict:
     cached_matches = get_cached_matches_batch(all_challenger_match_ids)
     uncached       = [mid for mid in all_challenger_match_ids if mid not in cached_matches]
 
-    MAX_FETCH = 50
+    MAX_FETCH = 30
     for mid in uncached[:MAX_FETCH]:
         url = f"{MATCH_REGION}/tft/match/v1/matches/{mid}"
         time.sleep(0.2)
@@ -430,7 +430,7 @@ with st.sidebar:
     st.markdown("""
     <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #1a2235;">
         <div style="font-size: 10px; color: #2a3a55; letter-spacing: 1px; line-height: 1.8;">
-            PULLS LAST 50 GAMES<br>
+            PULLS LAST 30 GAMES<br>
             COMPARES VS TOP 300 CHALLENGERS<br>
             NA REGION · TFT SET 17
         </div>
@@ -613,7 +613,7 @@ if st.session_state["analysis_data"] is None:
             </div>
             <div style="margin-top:12px;font-size:10px;color:#2a3a55;font-family:'Inter',sans-serif;
                         line-height:1.8;letter-spacing:0.5px">
-                PULLS LAST 50 GAMES &middot; BENCHMARKS VS TOP 300 CHALLENGERS<br>
+                PULLS LAST 20 GAMES &middot; BENCHMARKS VS TOP 300 CHALLENGERS<br>
                 NA REGION &middot; TFT SET 17 &middot; POWERED BY RIOT API + GROQ AI
             </div>
         </div>
