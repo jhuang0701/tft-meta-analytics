@@ -465,7 +465,7 @@ def build_match_history(matches: list, puuid: str) -> list:
                 p.get("level", 0),
                 p.get("gold_left", 0),
                 last_round=p.get("last_round", 0),
-                placement=p.get("placement", 8),   # ← new
+                placement=p.get("placement", 8),  
             )
 
             rows.append({
@@ -485,7 +485,7 @@ def build_match_history(matches: list, puuid: str) -> list:
 # ---------------------------------------------------------------------------
 
 _STAGE_BENCHMARKS = {
-    #         min   good
+    #  min           good
     2: dict(min=16,  good=28),   
     3: dict(min=38,  good=60),  
     4: dict(min=75,  good=110),  
@@ -669,7 +669,7 @@ def clean_trait_name(raw: str) -> str:
 
 def fetch_meta_context() -> str:
     """Meta context is now built from live challenger data already pulled."""
-    return ""  # handled in run_analysis via challenger_comps/units
+    return "" 
 
 def get_player_stats():
     conn = get_conn()

@@ -10,3 +10,5 @@ scripts/seed.py
 
 # Mac junk files
 .DS_Storescripts/seed.py
+seed_challenger.py
+seed_assets.py

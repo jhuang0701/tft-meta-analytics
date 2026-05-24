@@ -148,8 +148,8 @@ def metric_card(col, label, value, sub="", accent=False):
 # CORE ANALYSIS
 # ---------------------------------------------------------------------------
 def run_analysis(game_name: str, tag_line: str = "NA1") -> dict:
-    puuid       = get_puuid(game_name, tag_line)          # raises on bad name / rate-limit
-    your_matches = get_match_objects(puuid, count=50, ttl_hours=1)
+    puuid       = get_puuid(game_name, tag_line)        
+    your_matches = get_match_objects(puuid, count=20, ttl_hours=1)
     
     if not your_matches:
         raise ValueError(
@@ -240,7 +240,7 @@ def run_analysis(game_name: str, tag_line: str = "NA1") -> dict:
         "challenger_unit_item_stats": build_unit_item_stats(challenger_matches),
         "game_name":                  game_name,
         "tag_line":                   tag_line,
-        "meta_context":               meta_context,  # ← now built from real data
+        "meta_context":               meta_context,  
     }
 
 
@@ -430,7 +430,6 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    # ── CHANGED: empty defaults so placeholder text shows on first load ──
     game_name = st.text_input(
         "Game Name", "", label_visibility="collapsed", placeholder="Game Name"
     )
@@ -796,7 +795,7 @@ if st.session_state["analysis_data"] is not None:
                     tickfont=dict(color="#4a5568", family="Inter"),
                     tickvals=[1, 2, 3, 4, 5, 6, 7, 8], title="",
                 ),
-                xaxis=dict(gridcolor="rgba(255,255,255,0.04)",
+                xaxis=dict(autorange="reversed", gridcolor="rgba(255,255,255,0.04)",
                            tickfont=dict(color="#4a5568", family="Inter"), title=""),
                 margin=dict(l=20, r=80, t=10, b=10), height=280, showlegend=False,
             )
@@ -843,7 +842,7 @@ if st.session_state["analysis_data"] is not None:
             fig_bv.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                 height=220, margin=dict(l=20, r=80, t=24, b=10),
-                xaxis=dict(gridcolor="rgba(0,0,0,0)",
+                xaxis=dict(autorange="reversed", gridcolor="rgba(0,0,0,0)",
                            tickfont=dict(color="#4a5568", family="Inter")),
                 yaxis=dict(gridcolor="rgba(255,255,255,0.04)",
                            tickfont=dict(color="#4a5568", family="Inter"),
@@ -891,7 +890,7 @@ if st.session_state["analysis_data"] is not None:
                     title=dict(text=title, font=dict(size=10, color="#4a5568", family="Inter"), x=0),
                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                     height=160, margin=dict(l=10, r=10, t=30, b=10),
-                    xaxis=dict(visible=False),
+                    xaxis=dict(visible=False, autorange="reversed", ),
                     yaxis=dict(gridcolor="rgba(255,255,255,0.04)",
                                tickfont=dict(color="#4a5568", family="Inter", size=10)),
                     showlegend=False,
@@ -1696,7 +1695,6 @@ Be concise, specific, and direct. Use TFT terminology correctly. Reference the p
                     try:
                         groq_client = Groq(api_key=groq_key)
 
-                        # Does this question need a web search?
                         search_check = groq_client.chat.completions.create(
                             model="llama-3.3-70b-versatile",
                             messages=groq_messages + [{
