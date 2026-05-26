@@ -23,6 +23,13 @@ from db import (
     save_match, get_conn, save_player_performance,
 )
 
+import threading
+import time
+from evaluator.judge import judge_response, log_eval
+import uuid
+from ab.tracker import init_session, get_variant, record_turn, record_feedback
+from ab.prompt_variants import PROMPT_TEMPLATES
+
 load_dotenv()
 
 unit_map, item_map, item_name_map, unit_cost_map, trait_icon_map = load_maps()
@@ -54,9 +61,14 @@ for key, default in [
     ("chat_history", []),
     ("chat_player", None),
     ("chat_input_counter", 0),
+    ("session_id", str(uuid.uuid4())),
+    ("prompt_variant", None),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
+
+if st.session_state["prompt_variant"] is None:
+    st.session_state["prompt_variant"] = init_session(st.session_state["session_id"])
 
 # ---------------------------------------------------------------------------
 # CONFIG
@@ -147,6 +159,63 @@ def metric_card(col, label, value, sub="", accent=False):
 # ---------------------------------------------------------------------------
 # CORE ANALYSIS
 # ---------------------------------------------------------------------------
+
+def get_ai_response_with_eval(user_query, conversation_history, session_id,
+                               prompt_variant="control"):
+    """Wraps the chat response with async LLM-as-judge evaluation logging."""
+    from rag.context_builder import build_rag_context
+
+    t0 = _time.monotonic()
+
+    rag_context, retrieved_docs = build_rag_context(user_query)
+
+    if not rag_context:
+        serpapi_key = os.getenv("SERPAPI_KEY")
+        if serpapi_key:
+            try:
+                search_resp = requests.get(
+                    "https://serpapi.com/search",
+                    params={"q": user_query + " TFT", "api_key": serpapi_key, "num": 3},
+                    timeout=5,
+                )
+                if search_resp.status_code == 200:
+                    results  = search_resp.json().get("organic_results", [])
+                    snippets = [f"• {r.get('title','')}: {r.get('snippet','')}" for r in results[:3]]
+                    rag_context = "\n".join(snippets)
+            except Exception:
+                pass
+        retrieval_source = "serp"
+    else:
+        retrieval_source = "rag"
+
+    latency_ms = int((_time.monotonic() - t0) * 1000)
+
+    result = {
+        "retrieved_docs":   retrieved_docs,
+        "retrieval_source": retrieval_source,
+        "prompt_variant":   prompt_variant,
+        "rag_context":      rag_context,
+    }
+
+    def _eval(query, docs, content, variant, latency):
+        try:
+            context_str = "\n".join(d.content for d in docs)
+            ev = judge_response(query, content, context_str)
+            log_eval(
+                session_id=session_id,
+                query=query,
+                response=content,
+                retrieved_docs=docs,
+                eval_result=ev,
+                prompt_version=variant,
+                model="llama-3.3-70b-versatile",
+                latency_ms=latency,
+            )
+        except Exception as e:
+            print(f"[eval] Background eval failed: {e}")
+
+    return result, _eval, latency_ms
+
 def run_analysis(game_name: str, tag_line: str = "NA1") -> dict:
     puuid       = get_puuid(game_name, tag_line)        
     your_matches = get_match_objects(puuid, count=20, ttl_hours=1)
@@ -303,7 +372,8 @@ st.markdown("""
         letter-spacing: 1.5px !important; text-transform: uppercase !important;
         font-family: 'Inter', sans-serif !important;
     }
-    .stButton button {
+    .stButton button,
+    [data-testid="stFormSubmitButton"] button {
         background: linear-gradient(135deg, #c89b3c, #a07830) !important;
         color: #080c14 !important; font-family: 'Rajdhani', sans-serif !important;
         font-weight: 700 !important; font-size: 13px !important;
@@ -312,7 +382,8 @@ st.markdown("""
         padding: 10px 24px !important; width: 100% !important;
         transition: all 0.2s !important; margin-top: 8px !important;
     }
-    .stButton button:hover {
+    .stButton button:hover,
+    [data-testid="stFormSubmitButton"] button:hover {
         background: linear-gradient(135deg, #d4a84a, #b08840) !important;
         transform: translateY(-1px) !important;
         box-shadow: 0 4px 20px rgba(200,155,60,0.3) !important;
@@ -323,6 +394,7 @@ st.markdown("""
         border-radius: 10px !important; color: #22c55e !important;
     }
     .stSpinner > div { border-top-color: #c89b3c !important; }
+    .stSpinner { margin-top: -60px !important; }
     .metric-card {
         background: linear-gradient(145deg, #0d1221, #0a0e1a);
         padding: 20px 22px; border-radius: 12px; border: 1px solid #1a2235;
@@ -430,15 +502,16 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    game_name = st.text_input(
-        "Game Name", "", label_visibility="collapsed", placeholder="Game Name"
-    )
-    st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
-    tag_line = st.text_input(
-        "Tag", "", label_visibility="collapsed", placeholder="Tag (e.g. NA1)"
-    )
-    st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
-    run = st.button("⚡  Analyze", use_container_width='stretch')
+    with st.form("analyze_form", enter_to_submit=True):
+        game_name = st.text_input(
+            "Game Name", "", label_visibility="collapsed", placeholder="Game Name"
+        )
+        st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
+        tag_line = st.text_input(
+            "Tag", "", label_visibility="collapsed", placeholder="Tag (e.g. NA1)"
+        )
+        st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
+        run = st.form_submit_button("Analyze", use_container_width=True)
 
     st.markdown("""
     <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #1a2235;">
@@ -532,7 +605,7 @@ if st.session_state["analysis_data"] is None:
     <body>
     <div style="display:flex;flex-direction:column;align-items:center;
                 justify-content:center;min-height:520px;text-align:center;
-                padding:40px 20px;background:transparent">
+                padding:40px 20px 40px 20px;background:transparent;margin-top:-40px">
 
         <svg width="120" height="120" viewBox="0 0 120 120"
              xmlns="http://www.w3.org/2000/svg"
@@ -562,7 +635,7 @@ if st.session_state["analysis_data"] is None:
             Chat<span style="color:#c89b3c">TFT</span>
         </div>
         <div style="font-size:12px;color:#4a5568;letter-spacing:3px;
-                    text-transform:uppercase;margin-bottom:40px;
+                    text-transform:uppercase;margin-bottom:24px;
                     font-family:'Inter',sans-serif">
             Challenger Benchmark Engine &middot; NA Region
         </div>
@@ -585,7 +658,7 @@ if st.session_state["analysis_data"] is None:
                                 justify-content:center;margin-top:1px;flex-shrink:0">1</div>
                     <div style="font-size:13px;color:#8a9bb5;font-family:'Inter',sans-serif;line-height:1.5">
                         Enter your <span style="color:#c9d1e0;font-weight:500">Riot Game Name</span>
-                        in the sidebar &mdash; this is your in-game name
+                        in the sidebar
                     </div>
                 </div>
 
@@ -596,7 +669,7 @@ if st.session_state["analysis_data"] is None:
                                 justify-content:center;margin-top:1px;flex-shrink:0">2</div>
                     <div style="font-size:13px;color:#8a9bb5;font-family:'Inter',sans-serif;line-height:1.5">
                         Enter your <span style="color:#c9d1e0;font-weight:500">Tag Line</span>
-                        &mdash; the code after # in your Riot ID
+                        &mdash;
                         (e.g. <code style="background:#1a2235;padding:1px 5px;border-radius:3px;
                         font-size:12px;color:#c89b3c;font-family:monospace">NA1</code>)
                     </div>
@@ -608,8 +681,8 @@ if st.session_state["analysis_data"] is None:
                                 border-radius:50%;display:flex;align-items:center;
                                 justify-content:center;margin-top:1px;flex-shrink:0">3</div>
                     <div style="font-size:13px;color:#8a9bb5;font-family:'Inter',sans-serif;line-height:1.5">
-                        Click <span style="color:#c89b3c;font-weight:600">&#9889; Analyze</span>
-                        &mdash; first-run analysis takes about 15&ndash;30 seconds
+                        Click <span style="color:#c89b3c;font-weight:600">Analyze</span>
+                        &mdash; first analysis takes about 20 seconds
                     </div>
                 </div>
 
@@ -633,7 +706,9 @@ if st.session_state["analysis_data"] is None:
     </div>
     </body>
     </html>
-    """, height=820, scrolling=False)
+    """, height=680, scrolling=False)
+
+status_placeholder = st.empty()
 
 # ---------------------------------------------------------------------------
 # RUN ANALYSIS
@@ -643,27 +718,28 @@ if run:
         show_error("Missing Input", "Please enter both a Game Name before analyzing.")
     else:
         resolved_tag = tag_line.strip() if tag_line.strip() else "NA1"
-        with st.spinner("Pulling match data and crunching Challenger meta..."):
-            try:
-                data = run_analysis(game_name.strip(), resolved_tag)
-                st.session_state["analysis_data"] = data
-                st.session_state["ai_report"]        = None
-                st.session_state["ai_report_player"] = None
-                st.rerun()
-            except ValueError as e:
-                show_error("Player Not Found", str(e), "Double-check the spelling and make sure the tag is correct (e.g. NA1, EUW).")
-            except RuntimeError as e:
-                err = str(e)
-                if "rate limit" in err.lower():
-                    show_error("Rate Limited", err, "The Riot API allows a limited number of requests per second. Wait 60 seconds and try again.")
-                else:
-                    show_error("API Error", err)
-            except requests.exceptions.ConnectionError:
-                show_error("Connection Error", "Could not reach the Riot API. Check your internet connection and try again.")
-            except requests.exceptions.Timeout:
-                show_error("Request Timeout", "The Riot API took too long to respond. Try again in a moment.")
-            except Exception as e:
-                show_error("Unexpected Error", f"Something went wrong: {e}", "If this keeps happening, try refreshing the page.")
+        with status_placeholder:
+            with st.spinner("Pulling match data and crunching Challenger meta..."):
+                try:
+                    data = run_analysis(game_name.strip(), resolved_tag)
+                    st.session_state["analysis_data"] = data
+                    st.session_state["ai_report"]        = None
+                    st.session_state["ai_report_player"] = None
+                    st.rerun()
+                except ValueError as e:
+                    show_error("Player Not Found", str(e), "Double-check the spelling and make sure the tag is correct (e.g. NA1, EUW).")
+                except RuntimeError as e:
+                    err = str(e)
+                    if "rate limit" in err.lower():
+                        show_error("Rate Limited", err, "The Riot API allows a limited number of requests per second. Wait 60 seconds and try again.")
+                    else:
+                        show_error("API Error", err)
+                except requests.exceptions.ConnectionError:
+                    show_error("Connection Error", "Could not reach the Riot API. Check your internet connection and try again.")
+                except requests.exceptions.Timeout:
+                    show_error("Request Timeout", "The Riot API took too long to respond. Try again in a moment.")
+                except Exception as e:
+                    show_error("Unexpected Error", f"Something went wrong: {e}", "If this keeps happening, try refreshing the page.")
 
 # ---------------------------------------------------------------------------
 # MAIN DASHBOARD
@@ -682,7 +758,7 @@ if st.session_state["analysis_data"] is not None:
         </div>
         """, unsafe_allow_html=True)
     with col_refresh:
-        if st.button("🔄 Refresh", use_container_width='stretch'):
+        if st.button("Refresh", use_container_width='stretch'):
             try:
                 with st.spinner("Refreshing match data..."):
                     conn = get_conn()
@@ -709,7 +785,6 @@ if st.session_state["analysis_data"] is not None:
     TAB_NAMES = ["OVERVIEW", "UNITS", "COMPS", "ITEMS", "META GAPS", "AI INSIGHTS", "AI COACH"]
     tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(TAB_NAMES)
 
-    # Tab persistence via query params
     st.components.v1.html("""
     <script>
     const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -1401,7 +1476,6 @@ if st.session_state["analysis_data"] is not None:
         </div>
         """, unsafe_allow_html=True)
 
-        # Recompute merged data for prompt
         _your_units_df = data["your_units"].copy()
         _ch_units_df   = data["challenger_units"].copy()
         _merged_units  = _your_units_df.merge(_ch_units_df, on="unit", how="outer", suffixes=("_you", "_challenger")).fillna(0)
@@ -1496,7 +1570,7 @@ Rules: be brutally specific with actual unit/item/comp names and numbers. Use hy
             </div>
             """, unsafe_allow_html=True)
 
-            if st.button("⚡  Generate My Coaching Report", use_container_width='stretch'):
+            if st.button("Generate My Coaching Report", use_container_width='stretch'):
                 groq_key = os.getenv("GROQ_API_KEY")
                 if not groq_key:
                     show_error("AI Unavailable", "GROQ_API_KEY is not configured.", "Add it to your environment variables or Streamlit secrets.")
@@ -1516,7 +1590,7 @@ Rules: be brutally specific with actual unit/item/comp names and numbers. Use hy
                             show_error("AI Report Failed", f"Could not generate report: {e}", "Check your GROQ_API_KEY and try again.")
 
         if st.session_state["ai_report"]:
-            if st.button("🔄  Regenerate Report", use_container_width='stretch'):
+            if st.button("Regenerate Report", use_container_width='stretch'):
                 st.session_state["ai_report"]        = None
                 st.session_state["ai_report_player"] = None
                 st.rerun()
@@ -1618,9 +1692,7 @@ Rules: be brutally specific with actual unit/item/comp names and numbers. Use hy
         _merged_units["name"] = _merged_units["unit"].apply(clean_unit_name)
         _play_more = _merged_units[_merged_units["gap"] > 0.15].sort_values("gap", ascending=False).head(5)
 
-        chat_system_prompt = f"""You are an elite TFT (Teamfight Tactics) coach in a live coaching chat session.
-
-PLAYER: {data['game_name']}#{data['tag_line']}
+        player_context = f"""PLAYER: {data['game_name']}#{data['tag_line']}
 GAMES ANALYZED: {len(_placements)} games
 
 PERFORMANCE:
@@ -1628,7 +1700,7 @@ PERFORMANCE:
 - Top 4 Rate: {_top4_rate*100:.0f}%
 - Avg Level: {_avg_level:.1f}
 - Avg Gold Left: {_avg_gold:.1f}g
-- Avg Board Value: {f"{sum(r.get('board_value', 0) for r in _history) / len(_history):.0f}g" if _history else "N/A"} end-of-game (cost × star multiplier)
+- Avg Board Value: {f"{sum(r.get('board_value', 0) for r in _history) / len(_history):.0f}g" if _history else "N/A"} end-of-game
 - Econ pattern: {sum(1 for r in _history if r.get('econ', {}).get('rating') in ('Optimal','Strong'))} strong / {sum(1 for r in _history if r.get('econ', {}).get('rating') in ('Weak','Poor'))} weak econ games out of {len(_history)}
 
 TOP UNITS PLAYER PLAYS:
@@ -1643,11 +1715,12 @@ PLAYER'S TOP COMPS:
 UNIT GAPS (opportunities where Challengers outperform this player):
 {chr(10).join(f"• {row['name']}: +{row['gap']*100:.0f}% gap" for _, row in _play_more.iterrows()) if not _play_more.empty else "None significant"}
 
-{f"CURRENT META CONTEXT:{chr(10)}{data['meta_context']}" if data.get("meta_context") else ""}
+{f"CURRENT META CONTEXT:{chr(10)}{data['meta_context']}" if data.get("meta_context") else ""}"""
 
-Be concise, specific, and direct. Use TFT terminology correctly. Reference the player's actual data when relevant. Use hyphens in round callouts (e.g. 4-1). Keep responses to 3-5 sentences unless a detailed breakdown is explicitly asked for."""
+        chat_system_prompt = PROMPT_TEMPLATES[st.session_state["prompt_variant"]].format(
+            player_context=player_context
+        )
 
-        # Render chat history
         for msg in st.session_state["chat_history"]:
             is_user       = msg["role"] == "user"
             bubble_bg     = "#0d1221" if is_user else "#111827"
@@ -1668,7 +1741,6 @@ Be concise, specific, and direct. Use TFT terminology correctly. Reference the p
             </div>
             """, unsafe_allow_html=True)
 
-        # Chat input
         with st.form(key=f"chat_form_{st.session_state['chat_input_counter']}", clear_on_submit=True):
             col_input, col_send = st.columns([5, 1])
             with col_input:
@@ -1744,22 +1816,74 @@ Be concise, specific, and direct. Use TFT terminology correctly. Reference the p
                             final_messages[-1] = dict(final_messages[-1])
                             final_messages[-1]["content"] += web_context
 
+                        t0_chat = _time.monotonic()
                         response = groq_client.chat.completions.create(
                             model="llama-3.3-70b-versatile",
                             messages=final_messages,
                             max_tokens=600,
                         )
                         reply = response.choices[0].message.content
+                        latency_ms = int((_time.monotonic() - t0_chat) * 1000)
+
                         if needs_search and web_context:
                             reply += "\n\n*🔍 Answer informed by live web search.*"
+
+                        captured_session_id = st.session_state["session_id"]
+
+                        def _run_eval(query, response_text, context, latency, session_id):
+                            try:
+                                from evaluator.judge import judge_response, log_eval
+                                ev = judge_response(query, response_text, context)
+                                print(f"[eval] Scores: {ev.specificity} {ev.accuracy} {ev.actionability}")
+                                log_eval(
+                                    session_id=session_id,
+                                    query=query,
+                                    response=response_text,
+                                    retrieved_docs=[],
+                                    eval_result=ev,
+                                    prompt_version="chat_v1",
+                                    model="llama-3.3-70b-versatile",
+                                    latency_ms=latency,
+                                )
+                                print(f"[eval] Logged successfully")
+                            except Exception as eval_err:
+                                import traceback
+                                print(f"[eval] FAILED: {eval_err}")
+                                traceback.print_exc()
+
+                        threading.Thread(
+                            target=_run_eval,
+                            args=(user_input.strip(), reply, web_context, latency_ms, captured_session_id),
+                            daemon=True,
+                        ).start()
 
                     except Exception as e:
                         reply = f"⚠️ Coach encountered an error: {e}"
 
                 st.session_state["chat_history"].append({"role": "assistant", "content": reply})
+
+                captured_session_id = st.session_state["session_id"]
+                threading.Thread(
+                    target=record_turn,
+                    args=(captured_session_id, len(reply)),
+                    daemon=True,
+                ).start()
+
                 st.rerun()
 
         if st.session_state["chat_history"]:
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            fb_col1, fb_col2, fb_col3 = st.columns([1, 1, 6])
+            captured_sid = st.session_state["session_id"]
+            with fb_col1:
+                if st.button("👍", key=f"up_{len(st.session_state['chat_history'])}"):
+                    record_feedback(captured_sid, positive=True)
+                    st.toast("Thanks for the feedback!", icon="✅")
+            with fb_col2:
+                if st.button("👎", key=f"dn_{len(st.session_state['chat_history'])}"):
+                    record_feedback(captured_sid, positive=False)
+                    st.toast("Got it, we'll improve!", icon="📝")
+
             if st.button("🗑️ Clear Chat", use_container_width='content'):
                 st.session_state["chat_history"]     = []
                 st.session_state["chat_input_counter"] += 1
