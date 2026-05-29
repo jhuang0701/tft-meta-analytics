@@ -12,4 +12,5 @@ scripts/seed.py
 .DS_Storescripts/seed.py
 seed_challenger.py
 seed_assets.py
+seed_evals.py
 docs
