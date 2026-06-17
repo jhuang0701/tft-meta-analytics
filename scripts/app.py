@@ -870,8 +870,14 @@ if st.session_state["analysis_data"] is not None:
                     tickfont=dict(color="#4a5568", family="Inter"),
                     tickvals=[1, 2, 3, 4, 5, 6, 7, 8], title="",
                 ),
-                xaxis=dict(autorange="reversed", gridcolor="rgba(255,255,255,0.04)",
-                           tickfont=dict(color="#4a5568", family="Inter"), title=""),
+                xaxis=dict(
+                    autorange="reversed",
+                    tickmode="array",
+                    tickvals=game_nums,
+                    ticktext=game_nums,
+                    gridcolor="rgba(255,255,255,0.04)",
+                    tickfont=dict(color="#4a5568", family="Inter"), title="",
+                ),
                 margin=dict(l=20, r=80, t=10, b=10), height=280, showlegend=False,
             )
             st.plotly_chart(fig, use_container_width='stretch', key="placement_chart")

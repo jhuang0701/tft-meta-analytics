@@ -160,8 +160,8 @@ def get_match_objects(puuid: str, count: int = 50, ttl_hours: int = CACHE_TTL_HO
         return []
 
     cached_batch = get_cached_matches_batch(match_ids)
-    raw_matches = list(cached_batch.values())
     uncached = [mid for mid in match_ids if mid not in cached_batch]
+    fetched = {}
 
     def fetch_one(mid):
         url = f"{MATCH_REGION}/tft/match/v1/matches/{mid}"
@@ -184,7 +184,14 @@ def get_match_objects(puuid: str, count: int = 50, ttl_hours: int = CACHE_TTL_HO
                 mid, data = future.result()
                 if data:
                     save_match(mid, data)
-                    raw_matches.append(data)
+                    fetched[mid] = data
+
+    raw_matches = []
+    for mid in match_ids:
+        if mid in cached_batch:
+            raw_matches.append(cached_batch[mid])
+        elif mid in fetched:
+            raw_matches.append(fetched[mid])
 
     latest_set = detect_latest_set(raw_matches)
     return [m for m in raw_matches if m.get("info", {}).get("tft_set_number") == latest_set]
