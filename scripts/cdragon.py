@@ -15,6 +15,7 @@ PLUGIN_ROOT = f"{CD_BASE}plugins/rcp-be-lol-game-data/global/default/"
 PLACEHOLDER_UNIT = "https://placehold.co/60x60/1a1a2e/white?text=?"
 PLACEHOLDER_ITEM = "https://placehold.co/50x50/1a1a2e/white?text=?"
 
+
 def _img_to_base64(path: str) -> str:
     try:
         data = Path(path).read_bytes()
@@ -23,6 +24,7 @@ def _img_to_base64(path: str) -> str:
     except Exception as e:
         print(f"[IMG] Failed to load {path}: {e}")
         return PLACEHOLDER_ITEM
+
 
 ITEM_ICON_OVERRIDES = {
     "TFT5_Item_RunaansHurricaneRadiant": _img_to_base64("static/items/tft5_item_runaanshurricaneradiant.png"),
@@ -33,13 +35,18 @@ UNIT_ICON_OVERRIDES = {
     "tft17_diana": _img_to_base64("static/units/tft17_diana.png"),
 }
 
+# ----------------------------
+# IMAGE SERVING (DB-backed, no more live hotlinking at render time)
+# ----------------------------
+
 PLUGIN_TREE_PREFIX = "plugins/rcp-be-lol-game-data/global/default/assets/"
 GAME_TREE_PREFIX = "game/assets/"
 
 
 def _game_tree_variant(url: str):
-    """Some augment/particle icons live under game/assets/... instead of
-    the plugin tree that regular item/champion icons use."""
+    """See sync_images.py for the full explanation: augment icons and
+    'particle' item overlays commonly live under game/assets/... rather
+    than the plugin tree that regular item/champion icons use."""
     if PLUGIN_TREE_PREFIX not in url:
         return None
     base, _, rest = url.partition(PLUGIN_TREE_PREFIX)
@@ -48,8 +55,18 @@ def _game_tree_variant(url: str):
 
 @st.cache_data(show_spinner=False)
 def _url_to_data_uri(url: str) -> str:
-    """Resolve a CDragon URL to a base64 data URI, checking image_cache first
-    so we're not hotlinking raw.communitydragon.org on every render."""
+    """
+    Resolve a CDragon URL to a base64 data URI.
+
+    Looks in the DB image_cache first (populated by sync_images.py). If it's
+    not there yet -- e.g. a brand-new champion/item added since the last
+    sync run -- fetch it live once (trying the game/ tree variant too, since
+    some assets only exist there) and store it, so it self-heals instead of
+    permanently showing a placeholder.
+
+    @st.cache_data means this only round-trips to the DB once per URL per
+    running process; after that it's served from in-memory cache.
+    """
     cached = get_cached_image(url)
     if cached:
         content_type, data = cached
@@ -73,6 +90,7 @@ def _url_to_data_uri(url: str) -> str:
             print(f"[IMG] Failed to fetch {candidate}: {e}")
     return None
 
+
 # ----------------------------
 # DATA INITIALIZATION
 # ----------------------------
@@ -90,24 +108,12 @@ def load_maps():
     except Exception as e:
         st.warning(f"Failed to load CDragon data: {e}")
         return {}, {}, {}, {}, {}
-    
+
     unit_map = {}
     item_map = {}
     item_name_map = {}
     unit_cost_map = {}
     trait_icon_map = {}
-
-    def current_set_number(d):
-        """Mirrors sync_images.py's current_set_number so we only reference
-        icons that sync_images.py actually downloaded."""
-        numbers = []
-        for set_data in d.get("setData", []):
-            n = set_data.get("number")
-            if isinstance(n, int):
-                numbers.append(n)
-        return max(numbers) if numbers else None
-
-    target_set = current_set_number(data)
 
     def clean_path(raw_path):
         if not raw_path:
@@ -124,19 +130,17 @@ def load_maps():
 
     # --- Units ---
     for set_data in data.get("setData", []):
-        if target_set is not None and set_data.get("number") != target_set:
-            continue
         for champ in set_data.get("champions", []):
-            api_name  = champ.get("apiName", "")
-            name      = champ.get("name", "")
+            api_name = champ.get("apiName", "")
+            name = champ.get("name", "")
             icon_path = champ.get("tileIcon") or champ.get("squareIcon")
-            icon_url  = clean_path(icon_path)
-            cost      = champ.get("cost", 0)
+            icon_url = clean_path(icon_path)
+            cost = champ.get("cost", 0)
 
             if not icon_url:
                 continue
             if api_name:
-                unit_map[api_name.lower()]      = icon_url
+                unit_map[api_name.lower()] = icon_url
                 unit_cost_map[api_name.lower()] = cost
             if name:
                 unit_map[name.lower()] = icon_url
@@ -144,7 +148,7 @@ def load_maps():
     # --- Items ---
     for item in data.get("items", []):
         api_name = item.get("apiName", "")
-        name     = item.get("name", "")
+        name = item.get("name", "")
         icon_url = clean_path(item.get("icon"))
 
         if not icon_url:
@@ -157,11 +161,9 @@ def load_maps():
             item_map[name.lower()] = icon_url
 
     for set_data in data.get("setData", []):
-        if target_set is not None and set_data.get("number") != target_set:
-            continue
         for trait in set_data.get("traits", []):
             api_name = trait.get("apiName", "")
-            name     = trait.get("name", "")
+            name = trait.get("name", "")
             icon_url = clean_path(trait.get("icon"))
             if not icon_url:
                 continue
@@ -171,6 +173,7 @@ def load_maps():
                 trait_icon_map[name.lower()] = icon_url
 
     return unit_map, item_map, item_name_map, unit_cost_map, trait_icon_map
+
 
 # ----------------------------
 # PUBLIC API
@@ -197,6 +200,7 @@ def get_unit_cost(unit_id: str) -> int:
     _, _, _, unit_cost_map, _ = _get_maps()
     return unit_cost_map.get(unit_id.lower(), 0)
 
+
 def get_item_icon(item_id: str) -> str:
     # Check overrides case-insensitively
     for key, path in ITEM_ICON_OVERRIDES.items():
@@ -209,6 +213,7 @@ def get_item_icon(item_id: str) -> str:
     if not url:
         return PLACEHOLDER_ITEM
     return _url_to_data_uri(url) or PLACEHOLDER_ITEM
+
 
 def get_item_name(item_id: str) -> str:
     if not item_id:
@@ -224,6 +229,7 @@ def get_item_name(item_id: str) -> str:
     n = re.sub(r"([A-Z])", r" \1", n).strip()
     return n.title()
 
+
 def get_trait_icon(trait_name: str) -> str:
     if not trait_name:
         return ""
@@ -232,5 +238,3 @@ def get_trait_icon(trait_name: str) -> str:
     if not url:
         return ""
     return _url_to_data_uri(url) or ""
-
-

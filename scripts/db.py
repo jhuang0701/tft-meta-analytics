@@ -95,6 +95,19 @@ def init_db():
             )
         """)
 
+        # New: image_cache stores actual downloaded image bytes, keyed by
+        # the source URL they came from. This decouples serving images from
+        # CommunityDragon's live "latest" branch, which can drift out from
+        # under a stale cdragon JSON cache after a patch.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS image_cache (
+                url           TEXT PRIMARY KEY,
+                content_type  TEXT NOT NULL,
+                data          BYTEA NOT NULL,
+                fetched_at    DOUBLE PRECISION NOT NULL
+            )
+        """)
+
         # Indexes
         c.execute("CREATE INDEX IF NOT EXISTS idx_player_matches_puuid    ON player_matches(puuid)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_player_matches_match_id ON player_matches(match_id)")
@@ -243,7 +256,7 @@ def save_challenger_list(data: list):
         release_conn(conn)
 
 # ---------------------------------------------------------------------------
-# CDRAGON ASSETS
+# CDRAGON ASSETS (metadata JSON: names, stats, icon paths/URLs)
 # ---------------------------------------------------------------------------
 
 def get_cached_cdragon():
@@ -253,7 +266,9 @@ def get_cached_cdragon():
         c.execute("SELECT data, fetched_at FROM cdragon WHERE id=1")
         row = c.fetchone()
         c.close()
-        if row and is_fresh(row["fetched_at"], ttl_hours=168):
+        # Shortened from 168h -> 24h so a mid-cycle patch that shifts asset
+        # paths doesn't leave us serving a stale map for up to a week.
+        if row and is_fresh(row["fetched_at"], ttl_hours=24):
             return json.loads(row["data"])
         return None
     finally:
@@ -271,6 +286,82 @@ def save_cdragon(data: dict):
         """, (json.dumps(data), time.time()))
         conn.commit()
         c.close()
+    finally:
+        release_conn(conn)
+
+# ---------------------------------------------------------------------------
+# IMAGE CACHE (actual downloaded image bytes)
+# ---------------------------------------------------------------------------
+
+def get_cached_image(url: str):
+    """Return (content_type, data_bytes) for a previously downloaded image, or None."""
+    conn = get_conn()
+    try:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("SELECT content_type, data FROM image_cache WHERE url=%s", (url,))
+        row = c.fetchone()
+        c.close()
+        if row:
+            return row["content_type"], bytes(row["data"])
+        return None
+    finally:
+        release_conn(conn)
+
+def get_cached_images_batch(urls: list):
+    """Fetch multiple cached images in one query. Returns {url: (content_type, bytes)}."""
+    if not urls:
+        return {}
+    conn = get_conn()
+    try:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        placeholders = ",".join(["%s"] * len(urls))
+        c.execute(
+            f"SELECT url, content_type, data FROM image_cache WHERE url IN ({placeholders})",
+            urls
+        )
+        rows = c.fetchall()
+        c.close()
+        return {row["url"]: (row["content_type"], bytes(row["data"])) for row in rows}
+    finally:
+        release_conn(conn)
+
+def save_image(url: str, content_type: str, data: bytes):
+    conn = get_conn()
+    try:
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO image_cache (url, content_type, data, fetched_at)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (url) DO UPDATE
+            SET content_type=EXCLUDED.content_type,
+                data=EXCLUDED.data,
+                fetched_at=EXCLUDED.fetched_at
+        """, (url, content_type, psycopg2.Binary(data), time.time()))
+        conn.commit()
+        c.close()
+    finally:
+        release_conn(conn)
+
+def get_image_cache_urls():
+    """All URLs currently stored, for diffing against a freshly-parsed map."""
+    conn = get_conn()
+    try:
+        c = conn.cursor()
+        c.execute("SELECT url FROM image_cache")
+        rows = c.fetchall()
+        c.close()
+        return {r[0] for r in rows}
+    finally:
+        release_conn(conn)
+
+def get_image_cache_stats():
+    conn = get_conn()
+    try:
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*), COALESCE(SUM(LENGTH(data)), 0) FROM image_cache")
+        count, total_bytes = c.fetchone()
+        c.close()
+        return count, total_bytes
     finally:
         release_conn(conn)
 
