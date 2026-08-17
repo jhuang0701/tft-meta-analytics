@@ -100,6 +100,7 @@ TRAIT_NAME_MAP = {
 
 UNIT_NAME_MAP = {
     "galio": "The Mighty Mech",
+    "ivern minion": "Meepsie",
 }
 
 # ---------------------------------------------------------------------------
