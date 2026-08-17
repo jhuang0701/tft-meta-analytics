@@ -8,6 +8,8 @@ from pathlib import Path
 # ----------------------------
 # CONSTANTS
 # ----------------------------
+CURRENT_SET = 17
+
 CD_BASE = "https://raw.communitydragon.org/latest/"
 JSON_URL = f"{CD_BASE}cdragon/tft/en_us.json"
 PLUGIN_ROOT = f"{CD_BASE}plugins/rcp-be-lol-game-data/global/default/"
@@ -88,6 +90,9 @@ def load_maps():
             data = res.json()
             save_cdragon(data)
     except Exception as e:
+        import traceback
+        print(f"[LOAD_MAPS] Failed to load CDragon data: {e}")
+        traceback.print_exc()
         st.warning(f"Failed to load CDragon data: {e}")
         return {}, {}, {}, {}, {}
     
@@ -97,17 +102,8 @@ def load_maps():
     unit_cost_map = {}
     trait_icon_map = {}
 
-    def current_set_number(d):
-        """Mirrors sync_images.py's current_set_number so we only reference
-        icons that sync_images.py actually downloaded."""
-        numbers = []
-        for set_data in d.get("setData", []):
-            n = set_data.get("number")
-            if isinstance(n, int):
-                numbers.append(n)
-        return max(numbers) if numbers else None
-
-    target_set = current_set_number(data)
+    print(f"[LOAD_MAPS] CURRENT_SET = {CURRENT_SET!r}")
+    print(f"[LOAD_MAPS] setData count = {len(data.get('setData', []))}")
 
     def clean_path(raw_path):
         if not raw_path:
@@ -123,9 +119,12 @@ def load_maps():
         return PLUGIN_ROOT + path
 
     # --- Units ---
+    matched_sets = 0
     for set_data in data.get("setData", []):
-        if target_set is not None and set_data.get("number") != target_set:
+        if CURRENT_SET is not None and set_data.get("number") != CURRENT_SET:
             continue
+        matched_sets += 1
+        print(f"[LOAD_MAPS] matched set number={set_data.get('number')} mutator={set_data.get('mutator')} champions={len(set_data.get('champions', []))}")
         for champ in set_data.get("champions", []):
             api_name  = champ.get("apiName", "")
             name      = champ.get("name", "")
@@ -140,6 +139,7 @@ def load_maps():
                 unit_cost_map[api_name.lower()] = cost
             if name:
                 unit_map[name.lower()] = icon_url
+    print(f"[LOAD_MAPS] matched_sets={matched_sets}, unit_map size={len(unit_map)}")
 
     # --- Items ---
     for item in data.get("items", []):
@@ -157,7 +157,7 @@ def load_maps():
             item_map[name.lower()] = icon_url
 
     for set_data in data.get("setData", []):
-        if target_set is not None and set_data.get("number") != target_set:
+        if CURRENT_SET is not None and set_data.get("number") != CURRENT_SET:
             continue
         for trait in set_data.get("traits", []):
             api_name = trait.get("apiName", "")
@@ -178,7 +178,6 @@ def load_maps():
 def _get_maps():
     return load_maps()
 
-
 def get_unit_icon(unit_id: str) -> str:
     if not unit_id:
         return PLACEHOLDER_UNIT
@@ -189,7 +188,6 @@ def get_unit_icon(unit_id: str) -> str:
     if not url:
         return PLACEHOLDER_UNIT
     return _url_to_data_uri(url) or PLACEHOLDER_UNIT
-
 
 def get_unit_cost(unit_id: str) -> int:
     if not unit_id:

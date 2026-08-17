@@ -40,8 +40,8 @@ _UNIT_BLOCKLIST = [
     "tft_elderdragon", "tft17_elderdragon",
     "tft_pve", "tft17_pve",
     "tft_neutral",
-    "bardfollower", "turret", "clone", "trap",
-    "training", "monster", "dummyunit", "summon", "ivernminion",
+    "turret", "clone", "trap",
+    "training", "monster", "dummyunit", "summon", 
 ]
 
 _RADIANT_MARKERS  = ["radiant"]
