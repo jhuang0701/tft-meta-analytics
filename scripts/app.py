@@ -208,7 +208,7 @@ def get_ai_response_with_eval(user_query, conversation_history, session_id,
                 retrieved_docs=docs,
                 eval_result=ev,
                 prompt_version=variant,
-                model="llama-3.3-70b-versatile",
+                model="openai/gpt-oss-120b",
                 latency_ms=latency,
             )
         except Exception as e:
@@ -1585,7 +1585,7 @@ Rules: be brutally specific with actual unit/item/comp names and numbers. Use hy
                         try:
                             groq_client = Groq(api_key=groq_key)
                             response = groq_client.chat.completions.create(
-                                model="llama-3.3-70b-versatile",
+                                model="openai/gpt-oss-120b",
                                 messages=[{"role": "user", "content": prompt}],
                                 max_tokens=2000,
                             )
@@ -1774,7 +1774,7 @@ UNIT GAPS (opportunities where Challengers outperform this player):
                         groq_client = Groq(api_key=groq_key)
 
                         search_check = groq_client.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
+                            model="openai/gpt-oss-120b",
                             messages=groq_messages + [{
                                 "role": "user",
                                 "content": (
@@ -1790,7 +1790,7 @@ UNIT GAPS (opportunities where Challengers outperform this player):
                         web_context = ""
                         if needs_search:
                             query_resp = groq_client.chat.completions.create(
-                                model="llama-3.3-70b-versatile",
+                                model="openai/gpt-oss-120b",
                                 messages=groq_messages + [{
                                     "role": "user",
                                     "content": (
@@ -1824,7 +1824,7 @@ UNIT GAPS (opportunities where Challengers outperform this player):
 
                         t0_chat = _time.monotonic()
                         response = groq_client.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
+                            model="openai/gpt-oss-120b",
                             messages=final_messages,
                             max_tokens=600,
                         )
@@ -1848,7 +1848,7 @@ UNIT GAPS (opportunities where Challengers outperform this player):
                                     retrieved_docs=[],
                                     eval_result=ev,
                                     prompt_version="chat_v1",
-                                    model="llama-3.3-70b-versatile",
+                                    model="openai/gpt-oss-120b",
                                     latency_ms=latency,
                                 )
                                 print(f"[eval] Logged successfully")

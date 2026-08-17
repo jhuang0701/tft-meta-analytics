@@ -37,7 +37,7 @@ def judge_response(query: str, response: str, context: str = "") -> EvalResult:
     for attempt in range(3):
         try:
             resp = groq_client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="openai/gpt-oss-120b",
                 messages=[
                     {"role": "system", "content": JUDGE_SYSTEM},
                     {"role": "user",   "content": user_msg},
