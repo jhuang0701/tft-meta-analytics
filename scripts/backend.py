@@ -7,7 +7,7 @@ import time
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
-from assets import get_unit_cost
+from assets import get_unit_cost, get_unit_name, get_trait_name
 from db import (
     get_cached_puuid, save_puuid,
     get_cached_match_ids, save_match_ids,
@@ -255,7 +255,7 @@ def build_unit_stats(matches: list, min_games: int = 5) -> pd.DataFrame:
             "total_games": total,
             "top4_games":  top4,
             "top4_rate":   top4 / total,
-            "score":       (top4 + 1) / (total + 2),   # Laplace smoothing
+            "score":       (top4 + 1) / (total + 2),
         })
 
     df = pd.DataFrame(stats)
@@ -403,13 +403,7 @@ def build_comp_stats(matches: list, min_games: int = 2, puuid: str | None = None
             scored_units.append((avg_items, avg_stars, cost, unit_id))
         scored_units.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
         top_carriers  = [u for _, _, _, u in scored_units[:2]]
-        carrier_names = " · ".join(
-            UNIT_NAME_MAP.get(
-                re.sub(r"^TFT\d+_", "", u).replace("_", " ").title().lower(),
-                re.sub(r"^TFT\d+_", "", u).replace("_", " ").title()
-            )
-            for u in top_carriers
-        )
+        carrier_names = " · ".join(get_unit_name(u) for u in top_carriers)
 
         # trait label
         trait_tiers: dict = defaultdict(list)
@@ -638,7 +632,6 @@ def get_active_traits(participant: dict) -> list:
             })
     return sorted(traits, key=lambda x: x["num_units"], reverse=True)
 
-
 def get_units_with_items(participant: dict) -> list:
     result = []
     for unit in participant.get("units", []):
@@ -665,14 +658,7 @@ def classify_item(item_name: str) -> str | None:
 
 
 def clean_trait_name(raw: str) -> str:
-    lowered  = raw.lower()
-    stripped = re.sub(r"^tft\d+_", "", lowered)
-    if stripped in TRAIT_NAME_MAP:
-        return TRAIT_NAME_MAP[stripped]
-    for key, display in TRAIT_NAME_MAP.items():
-        if key in stripped:
-            return display
-    return raw
+    return get_trait_name(raw)
 
 
 def fetch_meta_context() -> str:

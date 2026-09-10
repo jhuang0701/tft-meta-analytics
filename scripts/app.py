@@ -17,7 +17,7 @@ from backend import (
     build_unit_item_stats, UNIT_NAME_MAP, clean_trait_name, fetch_meta_context,
     get_player_stats,
 )
-from assets import get_unit_icon, get_item_icon, get_item_name, get_unit_cost, get_trait_icon, load_maps
+from assets import get_unit_icon, get_item_icon, get_item_name, get_unit_cost, get_trait_icon, load_maps, get_unit_name
 from db import (
     get_cached_match_ids_batch, get_cached_matches_batch,
     save_match, get_conn, save_player_performance,
@@ -32,7 +32,7 @@ from ab.prompt_variants import PROMPT_TEMPLATES
 
 load_dotenv()
 
-unit_map, item_map, item_name_map, unit_cost_map, trait_icon_map = load_maps()
+unit_map, item_map, item_name_map, unit_cost_map, trait_icon_map, unit_name_map, trait_name_map = load_maps()
 
 # ---------------------------------------------------------------------------
 # DB STATS (sidebar counters)
@@ -82,11 +82,7 @@ MATCH_REGION = "https://americas.api.riotgames.com"
 # ---------------------------------------------------------------------------
 
 def clean_unit_name(name: str) -> str:
-    name    = re.sub(r"^TFT\d+_", "", name)
-    name    = name.replace("_", " ")
-    name    = re.sub(r"([a-z])([A-Z])", r"\1 \2", name)
-    cleaned = name.title()
-    return UNIT_NAME_MAP.get(cleaned.lower(), cleaned)
+    return get_unit_name(name)
 
 
 def get_top_items_for_unit(unit_id, unit_item_df, n=3):
@@ -518,7 +514,7 @@ with st.sidebar:
         <div style="font-size: 10px; color: #2a3a55; letter-spacing: 1px; line-height: 1.8;">
             PULLS LAST 50 GAMES<br>
             COMPARES VS TOP 300 CHALLENGERS<br>
-            NA REGION · TFT SET 17
+            NA REGION · TFT SET 18
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -700,7 +696,7 @@ if st.session_state["analysis_data"] is None:
             <div style="margin-top:12px;font-size:10px;color:#2a3a55;font-family:'Inter',sans-serif;
                         line-height:1.8;letter-spacing:0.5px">
                 PULLS LAST 50 GAMES &middot; BENCHMARKS VS TOP 300 CHALLENGERS<br>
-                NA REGION &middot; TFT SET 17 &middot; POWERED BY RIOT API + GROQ AI
+                NA REGION &middot; TFT SET 18 &middot; POWERED BY RIOT API + GROQ AI
             </div>
         </div>
     </div>

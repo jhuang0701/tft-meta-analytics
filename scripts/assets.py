@@ -8,7 +8,7 @@ from pathlib import Path
 # ----------------------------
 # CONSTANTS
 # ----------------------------
-CURRENT_SET = 17
+CURRENT_SET = 18
 
 CD_BASE = "https://raw.communitydragon.org/latest/"
 JSON_URL = f"{CD_BASE}cdragon/tft/en_us.json"
@@ -94,13 +94,15 @@ def load_maps():
         print(f"[LOAD_MAPS] Failed to load CDragon data: {e}")
         traceback.print_exc()
         st.warning(f"Failed to load CDragon data: {e}")
-        return {}, {}, {}, {}, {}
+        return {}, {}, {}, {}, {}, {}, {}
     
     unit_map = {}
     item_map = {}
     item_name_map = {}
     unit_cost_map = {}
     trait_icon_map = {}
+    unit_name_map = {}      # NEW
+    trait_name_map = {}
 
     print(f"[LOAD_MAPS] CURRENT_SET = {CURRENT_SET!r}")
     print(f"[LOAD_MAPS] setData count = {len(data.get('setData', []))}")
@@ -137,6 +139,7 @@ def load_maps():
             if api_name:
                 unit_map[api_name.lower()]      = icon_url
                 unit_cost_map[api_name.lower()] = cost
+                unit_name_map[api_name.lower()] = name    # NEW
             if name:
                 unit_map[name.lower()] = icon_url
     print(f"[LOAD_MAPS] matched_sets={matched_sets}, unit_map size={len(unit_map)}")
@@ -167,10 +170,11 @@ def load_maps():
                 continue
             if api_name:
                 trait_icon_map[api_name.lower()] = icon_url
+                trait_name_map[api_name.lower()] = name    # NEW
             if name:
                 trait_icon_map[name.lower()] = icon_url
 
-    return unit_map, item_map, item_name_map, unit_cost_map, trait_icon_map
+    return unit_map, item_map, item_name_map, unit_cost_map, trait_icon_map, unit_name_map, trait_name_map
 
 # ----------------------------
 # PUBLIC API
@@ -183,7 +187,7 @@ def get_unit_icon(unit_id: str) -> str:
         return PLACEHOLDER_UNIT
     if unit_id.lower() in UNIT_ICON_OVERRIDES:
         return UNIT_ICON_OVERRIDES[unit_id.lower()]
-    unit_map, _, _, _, _ = _get_maps()
+    unit_map, _, _, _, _, _, _ = _get_maps()
     url = unit_map.get(unit_id.lower())
     if not url:
         return PLACEHOLDER_UNIT
@@ -192,17 +196,16 @@ def get_unit_icon(unit_id: str) -> str:
 def get_unit_cost(unit_id: str) -> int:
     if not unit_id:
         return 0
-    _, _, _, unit_cost_map, _ = _get_maps()
+    _, _, _, unit_cost_map, _, _, _ = _get_maps()
     return unit_cost_map.get(unit_id.lower(), 0)
 
 def get_item_icon(item_id: str) -> str:
-    # Check overrides case-insensitively
     for key, path in ITEM_ICON_OVERRIDES.items():
         if key.lower() == item_id.lower():
             return path
     if not item_id:
         return PLACEHOLDER_ITEM
-    _, item_map, _, _, _ = _get_maps()
+    _, item_map, _, _, _, _, _ = _get_maps()
     url = item_map.get(item_id.lower())
     if not url:
         return PLACEHOLDER_ITEM
@@ -211,7 +214,7 @@ def get_item_icon(item_id: str) -> str:
 def get_item_name(item_id: str) -> str:
     if not item_id:
         return ""
-    _, _, item_name_map, _, _ = _get_maps()
+    _, _, item_name_map, _, _, _, _ = _get_maps()
     name = item_name_map.get(item_id.lower())
     if name:
         return name
@@ -225,10 +228,32 @@ def get_item_name(item_id: str) -> str:
 def get_trait_icon(trait_name: str) -> str:
     if not trait_name:
         return ""
-    _, _, _, _, trait_icon_map = _get_maps()
+    _, _, _, _, trait_icon_map, _, _ = _get_maps()
     url = trait_icon_map.get(trait_name.lower())
     if not url:
         return ""
     return _url_to_data_uri(url) or ""
+
+def get_unit_name(unit_id: str) -> str:
+    if not unit_id:
+        return ""
+    _, _, _, _, _, unit_name_map, _ = _get_maps()
+    name = unit_name_map.get(unit_id.lower())
+    if name:
+        return name
+    n = re.sub(r"\d+", "", unit_id)
+    n = "_".join(seg for seg in n.split("_") if seg.upper() not in ("TFT", "DA"))
+    return n.replace("_", " ").title()
+
+def get_trait_name(trait_id: str) -> str:
+    if not trait_id:
+        return ""
+    _, _, _, _, _, _, trait_name_map = _get_maps()
+    name = trait_name_map.get(trait_id.lower())
+    if name:
+        return name
+    n = re.sub(r"\d+", "", trait_id)
+    n = "_".join(seg for seg in n.split("_") if seg.upper() not in ("TFT", "DA"))
+    return n.replace("_", " ").title()
 
 
